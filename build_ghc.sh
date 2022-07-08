@@ -1,4 +1,3 @@
-. ./setenv.sh
 #echo "Build ghc: -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------"
 rm -rf ghc
 wget -c https://downloads.haskell.org/~ghc/9.2.3/ghc-9.2.3-src.tar.xz
@@ -13,4 +12,3 @@ patch -p0 < ../ghc_patch.diff
            # --with-gmp-libraries=$SORTIX/sysroot/lib \
 	   # --with-gmp-includes=$SORTIX/sysroot/include &&
 hadrian/build -V -j --flavour=static+no_dynamic_ghc -V -j
-_build/ghc-stage1 ../helloworld.hs

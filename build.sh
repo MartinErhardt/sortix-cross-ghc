@@ -1,5 +1,5 @@
+set -e
 git clone https://gitlab.com/sortix/sortix.git
-
 . ./setenv.sh
 
 cd $SORTIX && 
@@ -45,9 +45,8 @@ $GCC_SRC/configure \
 make -j20 all-gcc all-target-libgcc && 
 make install-gcc install-target-libgcc
 cd ..
-HOST=$SORTIX_PLATFORM
 cd "$SORTIX" &&
-make -j20 PACKAGES='libgmp! libiconv!' HOST=x86_64-sortix sortix.iso
+make -j20 PACKAGES='libgmp! libiconv!' HOST=x86_64-sortix
 
 cd ..
 ghc/_build/ghc-stage1 -V || ./build_ghc.sh
