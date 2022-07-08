@@ -1,0 +1,10 @@
+*ghc
+*ghc
+*build
+helloworld
+*.o
+*.hi
+*sortix*
+*.raw
+*.swp
+*.tar.xz

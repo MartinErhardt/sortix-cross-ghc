@@ -1,0 +1,213 @@
+--- m4/ghc_convert_os.m4	2022-07-02 20:09:36.118816883 +0200
++++ m4/ghc_convert_os.m4	2022-07-02 20:08:43.703819843 +0200
+@@ -23,7 +23,7 @@
+         $3="openbsd"
+         ;;
+       # As far as I'm aware, none of these have relevant variants
+-      freebsd|dragonfly|hpux|linuxaout|kfreebsdgnu|freebsd2|mingw32|darwin|nextstep2|nextstep3|sunos4|ultrix|haiku)
++      sortix|freebsd|dragonfly|hpux|linuxaout|kfreebsdgnu|freebsd2|mingw32|darwin|nextstep2|nextstep3|sunos4|ultrix|haiku)
+         $3="$1"
+         ;;
+       msys)
+--- m4/fptools_set_haskell_platform_vars.m4	2022-07-02 20:09:36.118816883 +0200
++++ m4/fptools_set_haskell_platform_vars.m4	2022-07-02 20:08:43.703819843 +0200
+@@ -100,6 +100,6 @@
+         nto-qnx)
+             test -z "[$]2" || eval "[$]2=OSQNXNTO"
+             ;;
+-        dragonfly|hpux|linuxaout|freebsd2|nextstep2|nextstep3|sunos4|ultrix)
++        sortix|dragonfly|hpux|linuxaout|freebsd2|nextstep2|nextstep3|sunos4|ultrix)
+             test -z "[$]2" || eval "[$]2=OSUnknown"
+             ;;
+--- rts/linker/Elf.c     2022-07-02 20:08:43.703819843 +0200
++++ rts/linker/Elf.c     2022-07-02 20:08:43.703819843 +0200
+@@ -6,4 +6,5 @@
+ || defined(dragonfly_HOST_OS) || defined(netbsd_HOST_OS) \
+-|| defined(openbsd_HOST_OS) || defined(gnu_HOST_OS)
++|| defined(openbsd_HOST_OS) || defined(gnu_HOST_OS) \
++|| defined(sortix_HOST_OS)
+ 
+ // It is essential that this is included before any <elf.h> is included. <elf.h>
+@@ -32,3 +32,3 @@
+ 
+-#include <link.h>
++#include <elf.h>
+ #include <stdlib.h>
+--- compiler/GHC/Platform.hs     2022-07-02 20:08:43.703819843 +0200
++++ compiler/GHC/Platform.hs     2022-07-02 20:08:43.703819843 +0200
+@@ -164,3 +164,3 @@
+ osElfTarget OSHurd      = True
+-osElfTarget OSUnknown   = False
++osElfTarget OSUnknown   = True
+  -- Defaulting to False is safe; it means don't rely on any
+--- rts/LinkerInternals.h     2022-07-02 20:09:36.118816883 +0200
++++ rts/LinkerInternals.h     2022-07-02 20:08:43.703819843 +0200
+@@ -25,3 +25,3 @@
+ || defined(dragonfly_HOST_OS) || defined(netbsd_HOST_OS) \
+-|| defined(openbsd_HOST_OS) || defined(gnu_HOST_OS)
++|| defined(openbsd_HOST_OS) || defined(gnu_HOST_OS) || defined(sortix_HOST_OS)
+ #  define OBJFORMAT_ELF
+--- rts/posix/OSMem.c     2022-07-02 20:08:43.703819843 +0200
++++ rts/posix/OSMem.c     2022-07-02 20:08:43.703819843 +0200
+@@ -56,3 +56,3 @@
+ 
+-#if defined(hpux_HOST_OS)
++#if defined(hpux_HOST_OS) || defined(sortix_HOST_OS)
+ # if !defined(MAP_ANON)
+@@ -439,3 +439,6 @@
+         }
++#elif defined (sortix_HOST_OS)
++        size_t used;
++        memstat(&used,&physMemSize);
+ #else
+         /* We'll politely assume we have a system supporting _SC_PHYS_PAGES
+--- rts/posix/GetTime.c     2022-07-02 20:08:43.703819843 +0200
++++ rts/posix/GetTime.c     2022-07-02 20:08:43.703819843 +0200
+@@ -83,2 +83,4 @@
+     }
++#elif defined (sortix_HOST_OS)
++    return getClockTime(CLOCK_THREAD_CPUTIME_ID);
+ #elif defined(HAVE_CLOCK_GETTIME)        &&  \
+@@ -232,3 +232,3 @@
+ {
+-#if !defined(HAVE_GETRUSAGE) || defined(haiku_HOST_OS)
++#if !defined(HAVE_GETRUSAGE) || defined(haiku_HOST_OS) || defined(sortix_HOST_OS)
+     return 0;
+--- rts/posix/OSThreads.c     2022-07-02 20:08:43.703819843 +0200
++++ rts/posix/OSThreads.c     2022-07-02 20:08:43.703819843 +0200
+@@ -219,4 +219,4 @@
+ {
+-#if defined(DEBUG)
++#if defined(DEBUG) && !defined(sortix_HOST_OS)
+    pthread_mutexattr_t attr;
+ {
+@@ -452,4 +452,8 @@
+ interruptOSThread (OSThreadId id)
+ {
++#if defined(sortix_HOST_OS)
++    abort();
++#else
++    pthread_kill(id, SIGPIPE);
++#endif
+-    pthread_kill(id, SIGPIPE);
+ }
+--- libraries/base/System/Posix/Internals.hs
++++ libraries/base/System/Posix/Internals.hs
+@@ -553,9 +553,5 @@
+ foreign import ccall unsafe "HsBase.h link"
+    c_link :: CString -> CString -> IO CInt
+ 
+--- capi is required at least on Android
+-foreign import capi unsafe "HsBase.h mkfifo"
+-   c_mkfifo :: CString -> CMode -> IO CInt
+-
+ foreign import capi unsafe "signal.h sigemptyset"
+    c_sigemptyset :: Ptr CSigset -> IO CInt
+--- libraries/unix/System/Posix/Files/ByteString.hsc
++++ libraries/unix/System/Posix/Files/ByteString.hsc
+@@ -210,5 +210,4 @@
+ createNamedPipe :: RawFilePath -> FileMode -> IO ()
+ createNamedPipe name mode = do
+-  withFilePath name $ \s ->
+-    throwErrnoPathIfMinus1_ "createNamedPipe" name (c_mkfifo s mode)
++  throwErrno "No named pipes in sortix!" >> return ()
+ 
+--- libraries/unix/System/Posix/Files.hsc
++++ libraries/unix/System/Posix/Files.hsc
+@@ -215,5 +215,4 @@
+ createNamedPipe :: RawFilePath -> FileMode -> IO ()
+ createNamedPipe name mode = do
+-  withFilePath name $ \s ->
+-    throwErrnoPathIfMinus1_ "createNamedPipe" name (c_mkfifo s mode)
++  throwErrno "No named pipes in sortix!" >> return ()
+ 
+--- rts/posix/Signals.c     2022-07-02 20:08:43.703819843 +0200
++++ rts/posix/Signals.c     2022-07-02 20:08:43.703819843 +0200
+@@ -353,3 +353,9 @@
+    while (!signals_pending() && sched_state == SCHED_RUNNING) {
+-        pause();
++#if defined (sortix_HOST_OS)
++        sigset_t all_sigs;
++        sigfillset(&all_sigs);
++        sigsuspend(&all_sigs);
++#else
++        pause();
++#endif
+    }
+--- hadrian/src/Settings/Flavours/Static.hs
++++ hadrian/src/Settings/Flavours/Static.hs
+@@ -51,4 +51,4 @@
+      -}
+-    , builder (Ghc CompileHs) ? pure [ "-fPIC", "-static" ]
+-    , builder (Ghc CompileCWithGhc) ? pure [ "-fPIC", "-optc", "-static"]
++    , builder (Ghc CompileHs) ? pure [ "-static" ]
++    , builder (Ghc CompileCWithGhc) ? pure [ "-optc", "-static"]
+     , builder (Ghc LinkHs) ? pure [ "-optl", "-static" ]
+--- rts/ProfHeap.c
++++ rts/ProfHeap.c
+@@ -72,3 +72,3 @@
+ {
+-#if !defined(mingw32_HOST_OS)
++#if !defined(mingw32_HOST_OS) && !defined(sortix_HOST_OS)
+     if (! prof_locale) {
+@@ -86,3 +86,3 @@
+ {
+-#if !defined(mingw32_HOST_OS)
++#if !defined(mingw32_HOST_OS) && !defined(sortix_HOST_OS)
+     if (prof_locale) {
+@@ -101,3 +101,3 @@
+     setlocale(LC_NUMERIC, "C");
+-#else
++#elif !defined(sortix_HOST_OS)
+     saved_locale = uselocale(prof_locale);
+@@ -112,3 +112,3 @@
+    setlocale(LC_NUMERIC, saved_locale);
+-#else
++#elif !defined(sortix_HOST_OS)
+    uselocale(saved_locale);
+--- libraries/time/lib/cbits/HsTime.c     2022-07-02 20:09:36.118816883 +0200
++++ libraries/time/lib/cbits/HsTime.c     2022-07-02 20:09:36.118816883 +0200
+@@ -42,2 +42,3 @@
+ # endif
++long timezone=0;
+ # if HAVE_DECL_ALTZONE
+--- libraries/unix/include/HsUnix.h     2022-07-02 20:09:36.118816883 +0200
++++ libraries/unix/include/HsUnix.h     2022-07-02 20:09:36.118816883 +0200
+@@ -110,3 +110,24 @@
+ #ifndef O_SYNC
++#ifndef O_FSYNC
++#define O_SYNC (1<<16)
++#define F_RDLCK 1
++#define F_WRLCK 2
++#define F_UNLCK 4
++#define F_GETLK_NUM F_NEXTFD_NUM+1
++#define F_SETLK_NUM F_GETLK_NUM+1
++#define F_SETLKW_NUM F_SETLK_NUM+1
++#define F_GETLK  F_ENCODE_CMD(F_GETLK_NUM,F_TYPE_INT)
++#define F_SETLK  F_ENCODE_CMD(F_SETLK_NUM,F_TYPE_INT)
++#define F_SETLKW F_ENCODE_CMD(F_SETLKW_NUM,F_TYPE_INT)
++#include<sys/types.h>
++struct flock{
++    short  l_type;   // Type of lock; F_RDLCK, F_WRLCK, F_UNLCK. 
++    short  l_whence; // Flag for starting offset. 
++    off_t  l_start;  // Relative offset in bytes. 
++    off_t  l_len;    // Size; if 0 then until EOF. 
++    pid_t  l_pid;    // Process ID of the process holding the lock; returned with F_GETLK. 
++};
++#else
++#define O_SYNC O_FSYNC
++#endif
+-# define O_SYNC O_FSYNC
+ #endif
+--- configure.ac     2022-07-02 20:09:36.118816883 +0200
++++ configure.ac     2022-07-02 20:08:43.703819843 +0200
+@@ -1078,2 +1078,4 @@
+                   use_large_address_space=no
++        elif test "$ghc_host_os" = "sortix" ; then
++                  use_large_address_space=no
+         elif test "$ghc_host_os" = "mingw32" ; then
+@@ -1106,3 +1108,3 @@
+ case ${TargetOS} in
+-    linux|linux-android|freebsd|dragonfly|netbsd|openbsd|kfreebsdgnu|gnu|solaris2)
++    sortix|linux|linux-android|freebsd|dragonfly|netbsd|openbsd|kfreebsdgnu|gnu|solaris2)
+         RtsLinkerUseMmap=1
