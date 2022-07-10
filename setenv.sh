@@ -2,5 +2,5 @@ SORTIX_PLATFORM=x86_64-sortix
 CROSS_PREFIX=$PWD/$SORTIX_PLATFORM
 SORTIX=$PWD/sortix
 #HOST=$SORTIX_PLATFORM
-export PATH="~/.cabal/bin:$CROSS_PREFIX/bin:$CROSS_PREFIX/sbin:$PATH"
+export PATH="~/.cabal/bin:$CROSS_PREFIX/bin:$CROSS_PREFIX/sbin:$PWD/ghc/_build/stage1/bin:$PATH"
 

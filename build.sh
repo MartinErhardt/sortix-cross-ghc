@@ -1,5 +1,8 @@
 set -e
-git clone https://gitlab.com/sortix/sortix.git
+if ! test -d sortix
+then
+  git clone https://gitlab.com/sortix/sortix.git
+fi
 . ./setenv.sh
 
 cd $SORTIX && 
@@ -22,38 +25,37 @@ tar -xf sortix-gcc-latest.tar.xz
 
 BINUTILS_SRC=$PWD/sortix-binutils-1.1-rc3
 GCC_SRC=$PWD/sortix-gcc-1.1-rc3
+if ! x86_64-sortix-ld -V
+then
+  mkdir -p binutils-build && 
+    cd    binutils-build && 
+      $BINUTILS_SRC/configure \
+      --target=$SORTIX_PLATFORM \
+      --with-sysroot="$SORTIX/sysroot" \
+      --prefix="$CROSS_PREFIX" \
+      --disable-werror &&
+    make -j20 &&
+    make install
+  cd ..
+fi
 
-mkdir -p binutils-build && 
-  cd    binutils-build && 
-  $BINUTILS_SRC/configure \
-  --target=$SORTIX_PLATFORM \
-  --with-sysroot="$SORTIX/sysroot" \
-  --prefix="$CROSS_PREFIX" \
-  --disable-werror &&
-make -j20 &&
-make install
 echo "Build gcc!-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------"
-# exit 0
-cd ..
-mkdir -p gcc-build && 
-cd gcc-build && 
-$GCC_SRC/configure \
- --target=$SORTIX_PLATFORM \
- --with-sysroot="$SORTIX/sysroot" \
- --prefix="$CROSS_PREFIX" \
- --enable-languages=c,c++ && 
-make -j20 all-gcc all-target-libgcc && 
-make install-gcc install-target-libgcc
-cd ..
+if ! x86_64-sortix-gcc -V
+then
+  mkdir -p gcc-build && 
+    cd gcc-build && 
+    $GCC_SRC/configure \
+      --target=$SORTIX_PLATFORM \
+      --with-sysroot="$SORTIX/sysroot" \
+      --prefix="$CROSS_PREFIX" \
+      --enable-languages=c,c++ && 
+    make -j20 all-gcc all-target-libgcc && 
+    make install-gcc install-target-libgcc
+  cd ..
+fi
+
 cd "$SORTIX" &&
 make -j20 PACKAGES='libgmp! libiconv!' HOST=x86_64-sortix
 
 cd ..
-ghc/_build/ghc-stage1 -V || ./build_ghc.sh
-ghc/_build/ghc-stage1 helloworld.hs 
-mkdir -p $SORTIX/sysroot-overlay/bin
-cp helloworld $SORTIX/sysroot-overlay/bin
-
-echo "Build GMP---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------"
-cd "$SORTIX" &&
-make -j20 PACKAGES='' HOST=x86_64-sortix sortix.iso
+./ccrosskell.sh

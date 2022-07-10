@@ -112,6 +112,118 @@
 -    throwErrnoPathIfMinus1_ "createNamedPipe" name (c_mkfifo s mode)
 +  throwErrno "No named pipes in sortix!" >> return ()
  
+--- libraries/base/System/Environment.hs
++++ libraries/base/System/Environment.hs
+@@ -225,2 +225,3 @@
+ setEnv_ :: String -> String -> IO ()
++#define sortix_HOST_OS 1
+ #if defined(mingw32_HOST_OS)
+@@ -233,2 +233,9 @@
+   c_SetEnvironmentVariable :: LPTSTR -> LPTSTR -> IO Bool
++#elif defined(sortix_HOST_OS)
++setEnv_ k v = do
++  ks <- getFileSystemEncoding >>= (`GHC.newCString` k)
++  vs <- getFileSystemEncoding >>= (`GHC.newCString` v)
++  throwErrnoIf_ (/= 0) "setenv" (c_setenv ks vs (fromIntegral 1))
++foreign import ccall unsafe "setenv" c_setenv :: CString -> CString -> CInt -> IO CInt
++putEnv keyvalue = throwErrno "putEnv is dangerous!" >> return ()
+ #else
+--- libraries/base/System/Environment/Blank.hsc
++++ libraries/base/System/Environment/Blank.hsc
+@@ -146,2 +146,3 @@
+ unsetEnv :: String -> IO ()
++#define sortix_HOST_OS
+ #if defined(mingw32_HOST_OS)
+@@ -163,3 +163,3 @@
+   c_GetLastError:: IO DWORD
+-#elif HAVE_UNSETENV
++#elif HAVE_UNSETENV || defined(sortix_HOST_OS)
+ # if !UNSETENV_RETURNS_VOID
+--- libraries/unix/System/Posix/Env.hsc
++++ libraries/unix/System/Posix/Env.hsc
+
+@@ -142,2 +142,6 @@
+ putEnv :: String {- ^ "key=value" -} -> IO ()
++#define sortix_HOST_OS
++#if defined(sortix_HOST_OS)
++putEnv keyvalue = return ()
++#else
+ putEnv keyvalue = do s <- newFilePath keyvalue
+@@ -160,3 +160,4 @@
+    c_putenv :: CString -> IO CInt
++#endif
+
+ {- |The 'setEnv' function inserts or resets the environment variable name in
+--- libraries/unix/System/Posix/Files/Common.hsc
++++ libraries/unix/System/Posix/Files/Common.hsc
+@@ -75,3 +75,5 @@
+     toCTimeVal,
+-    c_utimes,
++#if !defined(sortix_HOST_OS)
++    c_utimes,
++#endif
+ #ifdef HAVE_LUTIMES
+@@ -449,6 +451,9 @@
+     (sec', frac') = properFraction $ toRational t
+ 
+-foreign import ccall unsafe "utimes"
+-    c_utimes :: CString -> Ptr CTimeVal -> IO CInt
++#if !defined(sortix_HOST_OS)
++foreign import ccall unsafe "utimes"
++    c_utimes :: CString -> Ptr CTimeVal -> IO CInt
++#endif
++
+ 
+ #ifdef HAVE_LUTIMES
+--- libraries/unix/System/Posix/Process/Common.hsc
++++ libraries/unix/System/Posix/Process/Common.hsc
+@@ -106,8 +106,12 @@
+ --   'ProcessGroupID' for the current process.
+-getProcessGroupID :: IO ProcessGroupID
+-getProcessGroupID = c_getpgrp
+-
+-foreign import ccall unsafe "getpgrp"
+-  c_getpgrp :: IO CPid
++#if defined (sortix_HOST_OS)
++getProcessGroupID = c_getpgid 0
++#else
++getProcessGroupID :: IO ProcessGroupID
++getProcessGroupID = c_getpgrp
++
++foreign import ccall unsafe "getpgrp"
++  c_getpgrp :: IO CPid
++#endif
+ 
+ -- | @'getProcessGroupIDOf' pid@ calls @getpgid@ to obtain the
+@@ -216,13 +216,19 @@
+ -- Process scheduling priority
+ 
+-nice prio = do
+-  resetErrno
+-  res <- c_nice (fromIntegral prio)
+-  when (res == -1) $ do
+-    err <- getErrno
+-    when (err /= eOK) (throwErrno "nice")
+-
+-foreign import ccall unsafe "nice"
+-  c_nice :: CInt -> IO CInt
++#if defined(sortix_HOST_OS)
++{-# WARNING nice
++    "operation will throw 'IOError' \"unsupported operation\" (CPP guard: @#if HAVE_GETPID@)" #-}
++nice _ = return () 
++#else
++nice prio = do
++  resetErrno
++  res <- c_nice (fromIntegral prio)
++  when (res == -1) $ do
++    err <- getErrno
++    when (err /= eOK) (throwErrno "nice")
++
++foreign import ccall unsafe "nice"
++  c_nice :: CInt -> IO CInt
++#endif
+ 
+ getProcessPriority      :: ProcessID      -> IO Int
 --- libraries/unix/System/Posix/Files.hsc
 +++ libraries/unix/System/Posix/Files.hsc
 @@ -215,5 +215,4 @@
